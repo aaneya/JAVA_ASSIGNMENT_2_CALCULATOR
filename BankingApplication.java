@@ -1,12 +1,10 @@
 import java.util.Scanner;
-
-// Account class to store account details and operations
 class Account {
     int accountNumber;
     String accountHolderName, email, phoneNumber;
     double balance;
 
-    // Method to deposit money
+    
     void deposit(double amount) {
         if (amount > 0) {
             balance += amount;
@@ -16,7 +14,7 @@ class Account {
         }
     }
 
-    // Method to withdraw money
+
     void withdraw(double amount) {
         if (amount > 0 && amount <= balance) {
             balance -= amount;
@@ -26,7 +24,7 @@ class Account {
         }
     }
 
-    // Method to display account details
+
     void displayAccountDetails() {
         System.out.println("\n--- Account Details ---");
         System.out.println("Account No   : " + accountNumber);
@@ -36,7 +34,7 @@ class Account {
         System.out.println("Balance      : " + balance);
     }
 
-    // Method to update contact details
+
     void updateContactDetails(String e, String p) {
         email = e;
         phoneNumber = p;
