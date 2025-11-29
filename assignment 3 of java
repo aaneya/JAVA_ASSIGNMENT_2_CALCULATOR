@@ -1,0 +1,239 @@
+/*
+ Student Result Management System
+ Single-file implementation containing:
+  - public class ResultManager (contains main)
+  - static class Student
+  - static class InvalidMarksException (custom checked exception)
+
+ Notes:
+  - Uses an array to store up to MAX_STUDENTS Student objects.
+  - validateMarks() throws InvalidMarksException when any mark is outside 0-100.
+  - Pass criteria: student passes if each subject mark >= 35 (adjustable in PASS_MARK).
+  - Demonstrates try, catch, throw, throws, and finally. Handles InputMismatch/NumberFormat errors.
+*/
+
+import java.util.Scanner;
+import java.util.Arrays;
+
+public class ResultManager {
+    // Configuration
+    private static final int MAX_STUDENTS = 50;     // capacity of the students array
+    private static final int SUBJECT_COUNT = 3;     // number of subjects per requirements
+    private static final int PASS_MARK = 35;        // passing mark per subject (can be changed)
+
+    // Storage
+    private Student[] students;
+    private int studentCount;
+
+    // Scanner for input
+    private Scanner scanner;
+
+    public ResultManager() {
+        students = new Student[MAX_STUDENTS];
+        studentCount = 0;
+        scanner = new Scanner(System.in);
+    }
+
+    // Adds a student after collecting input and validating marks
+    public void addStudent() {
+        try {
+            System.out.print("Enter Roll Number: ");
+            String rollLine = scanner.nextLine().trim();
+            if (rollLine.isEmpty()) throw new IllegalArgumentException("Roll number cannot be empty.");
+            int roll = Integer.parseInt(rollLine);
+
+            System.out.print("Enter Student Name: ");
+            String name = scanner.nextLine().trim();
+            if (name.isEmpty()) throw new IllegalArgumentException("Student name cannot be empty.");
+
+            int[] marks = new int[SUBJECT_COUNT];
+            for (int i = 0; i < SUBJECT_COUNT; i++) {
+                System.out.print("Enter marks for subject " + (i + 1) + ": ");
+                String markLine = scanner.nextLine().trim();
+                if (markLine.isEmpty()) throw new IllegalArgumentException("Marks cannot be empty.");
+                marks[i] = Integer.parseInt(markLine);
+            }
+
+            Student s = new Student(roll, name, marks);
+            // validateMarks may throw InvalidMarksException
+            s.validateMarks();
+
+            if (studentCount >= MAX_STUDENTS) {
+                System.out.println("Cannot add more students. Storage is full.");
+                return;
+            }
+
+            // Check for duplicate roll number
+            if (findStudentIndexByRoll(roll) != -1) {
+                System.out.println("A student with roll number " + roll + " already exists. Use a unique roll number.");
+                return;
+            }
+
+            students[studentCount++] = s;
+            System.out.println("Student added successfully. Returning to main menu...");
+
+        } catch (NumberFormatException nfe) {
+            System.out.println("Error: Invalid numeric input. " + nfe.getMessage() + " Returning to main menu...");
+        } catch (InvalidMarksException ime) {
+            System.out.println("Error: " + ime.getMessage() + " Returning to main menu...");
+        } catch (IllegalArgumentException iae) {
+            System.out.println("Error: " + iae.getMessage() + " Returning to main menu...");
+        } catch (Exception e) {
+            // Catch-all for unexpected runtime exceptions (unchecked exceptions)
+            System.out.println("An unexpected error occurred: " + e.getMessage() + " Returning to main menu...");
+        }
+    }
+
+    // Displays details for a student given a roll number
+    public void showStudentDetails() {
+        try {
+            System.out.print("Enter Roll Number to search: ");
+            String rollLine = scanner.nextLine().trim();
+            if (rollLine.isEmpty()) throw new IllegalArgumentException("Roll number cannot be empty.");
+            int roll = Integer.parseInt(rollLine);
+
+            int idx = findStudentIndexByRoll(roll);
+            if (idx == -1) {
+                System.out.println("Student with roll number " + roll + " not found. Search completed.");
+                return;
+            }
+
+            Student s = students[idx];
+            s.displayResult();
+            System.out.println("Search completed.");
+
+        } catch (NumberFormatException nfe) {
+            System.out.println("Error: Invalid roll number. " + nfe.getMessage());
+        } catch (IllegalArgumentException iae) {
+            System.out.println("Error: " + iae.getMessage());
+        } catch (Exception e) {
+            System.out.println("An unexpected error occurred: " + e.getMessage());
+        }
+    }
+
+    // Find index of student array by roll number
+    private int findStudentIndexByRoll(int roll) {
+        for (int i = 0; i < studentCount; i++) {
+            if (students[i].getRollNumber() == roll) return i;
+        }
+        return -1;
+    }
+
+    // Main menu loop demonstrating try/catch/finally and usage of methods that throw exceptions
+    public void mainMenu() {
+        try {
+            boolean exit = false;
+            while (!exit) {
+                System.out.println();
+                System.out.println("===== Student Result Management System =====");
+                System.out.println("1. Add Student");
+                System.out.println("2. Show Student Details");
+                System.out.println("3. Exit");
+                System.out.print("Enter your choice: ");
+
+                String choiceLine = scanner.nextLine().trim();
+                if (choiceLine.isEmpty()) {
+                    System.out.println("No choice entered. Please select 1, 2 or 3.");
+                    continue;
+                }
+
+                int choice = Integer.parseInt(choiceLine);
+                switch (choice) {
+                    case 1:
+                        addStudent();
+                        break;
+                    case 2:
+                        showStudentDetails();
+                        break;
+                    case 3:
+                        System.out.println("Exiting program. Thank you!");
+                        exit = true;
+                        break;
+                    default:
+                        System.out.println("Invalid choice. Please select 1, 2 or 3.");
+                }
+            }
+        } catch (NumberFormatException nfe) {
+            System.out.println("Error: Choice must be a number. Exiting main menu.");
+        } finally {
+            // Release scanner resource
+            if (scanner != null) {
+                scanner.close();
+            }
+            System.out.println("Scanner closed. Program terminated.");
+        }
+    }
+
+    // Entry point
+    public static void main(String[] args) {
+        ResultManager manager = new ResultManager();
+        manager.mainMenu();
+    }
+
+    // --------------------- Inner classes ---------------------
+
+    // Student class as per requirements
+    static class Student {
+        private int rollNumber;
+        private String studentName;
+        private int[] marks; // length = SUBJECT_COUNT
+
+        public Student(int rollNumber, String studentName, int[] marks) {
+            this.rollNumber = rollNumber;
+            this.studentName = studentName;
+            // Defensive copy to avoid external modification
+            this.marks = Arrays.copyOf(marks, marks.length);
+        }
+
+        public int getRollNumber() {
+            return rollNumber;
+        }
+
+        // Validates each subject's marks must be between 0 and 100 inclusive
+        // Throws custom checked exception InvalidMarksException for any invalid mark
+        public void validateMarks() throws InvalidMarksException {
+            for (int i = 0; i < marks.length; i++) {
+                int m = marks[i];
+                if (m < 0 || m > 100) {
+                    throw new InvalidMarksException("Invalid marks for subject " + (i + 1) + ": " + m + ". Marks must be between 0 and 100.");
+                }
+            }
+        }
+
+        // Calculates average of available marks
+        public double calculateAverage() {
+            double sum = 0.0;
+            for (int m : marks) sum += m;
+            return sum / marks.length;
+        }
+
+        // Determines pass/fail using a simple rule: all subjects >= PASS_MARK => Pass
+        public boolean isPass() {
+            for (int m : marks) {
+                if (m < PASS_MARK) return false;
+            }
+            return true;
+        }
+
+        // Displays roll number, name, marks, average and result status
+        public void displayResult() {
+            System.out.println("Roll Number: " + rollNumber);
+            System.out.println("Student Name: " + studentName);
+            System.out.print("Marks: ");
+            for (int i = 0; i < marks.length; i++) {
+                System.out.print(marks[i]);
+                if (i < marks.length - 1) System.out.print(" ");
+            }
+            System.out.println();
+            System.out.println("Average: " + calculateAverage());
+            System.out.println("Result: " + (isPass() ? "Pass" : "Fail"));
+        }
+    }
+
+    // Custom checked exception for invalid marks
+    static class InvalidMarksException extends Exception {
+        public InvalidMarksException(String message) {
+            super(message);
+        }
+    }
+}
