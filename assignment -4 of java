@@ -1,0 +1,497 @@
+/*
+ City Library Digital Management System
+ Single-file Java implementation containing:
+  - public class CityLibraryManagementSystem (contains main)
+  - static class Book
+  - static class Member
+  - static class LibraryManager
+
+ Features implemented (per assignment):
+  - Add book/member, issue/return books
+  - Data persistence using text files (books.txt, members.txt)
+  - Collections: Map for books/members, List for issued books, Set for categories
+  - Comparable (Book by title) and Comparator (by author, by category)
+  - BufferedReader/BufferedWriter for file I/O
+  - Input validation (unique IDs, basic email format, book availability)
+  - Exception handling and resource management
+
+ Note: This is a single-file console application for simplicity.
+ To compile: javac CityLibraryManagementSystem.java
+ To run:     java CityLibraryManagementSystem
+*/
+
+import java.io.*;
+import java.util.*;
+import java.util.regex.Pattern;
+
+public class CityLibraryManagementSystem {
+
+    public static void main(String[] args) {
+        LibraryManager manager = new LibraryManager();
+        manager.loadFromFile();
+        manager.mainMenu();
+    }
+
+    // ------------------------- Book -------------------------
+    static class Book implements Comparable<Book> {
+        private int bookId;
+        private String title;
+        private String author;
+        private String category;
+        private boolean isIssued;
+
+        public Book(int bookId, String title, String author, String category, boolean isIssued) {
+            this.bookId = bookId;
+            this.title = title;
+            this.author = author;
+            this.category = category;
+            this.isIssued = isIssued;
+        }
+
+        public int getBookId() { return bookId; }
+        public String getTitle() { return title; }
+        public String getAuthor() { return author; }
+        public String getCategory() { return category; }
+        public boolean isIssued() { return isIssued; }
+
+        public void markAsIssued() { isIssued = true; }
+        public void markAsReturned() { isIssued = false; }
+
+        public void displayBookDetails() {
+            System.out.println("Book ID: " + bookId);
+            System.out.println("Title  : " + title);
+            System.out.println("Author : " + author);
+            System.out.println("Category: " + category);
+            System.out.println("Issued : " + (isIssued ? "Yes" : "No"));
+            System.out.println("-----------------------------------");
+        }
+
+        // CSV friendly representation
+        public String toCSV() {
+            // Escape commas by replacing with unicode placeholder if necessary
+            return bookId + "," + escape(title) + "," + escape(author) + "," + escape(category) + "," + isIssued;
+        }
+
+        public static Book fromCSV(String line) {
+            // naive CSV split (assignment input is simple), respecting our escape
+            String[] parts = splitCSV(line);
+            if (parts.length < 5) return null;
+            try {
+                int id = Integer.parseInt(parts[0]);
+                String title = unescape(parts[1]);
+                String author = unescape(parts[2]);
+                String category = unescape(parts[3]);
+                boolean issued = Boolean.parseBoolean(parts[4]);
+                return new Book(id, title, author, category, issued);
+            } catch (Exception e) {
+                return null;
+            }
+        }
+
+        @Override
+        public int compareTo(Book other) {
+            return this.title.compareToIgnoreCase(other.title);
+        }
+
+        // Helper escape/unescape for simple CSV protection
+        private static String escape(String s) {
+            return s.replace("\\", "\\\\").replace(",", "\u001F");
+        }
+        private static String unescape(String s) {
+            return s.replace("\u001F", ",").replace("\\\\", "\\");
+        }
+        private static String[] splitCSV(String line) {
+            // split on commas, since we encoded commas as unit separator \u001F
+            return line.split(",");
+        }
+    }
+
+    // ------------------------- Member -------------------------
+    static class Member {
+        private int memberId;
+        private String name;
+        private String email;
+        private List<Integer> issuedBooks; // store book IDs
+
+        public Member(int memberId, String name, String email, List<Integer> issuedBooks) {
+            this.memberId = memberId;
+            this.name = name;
+            this.email = email;
+            this.issuedBooks = new ArrayList<>(issuedBooks);
+        }
+
+        public int getMemberId() { return memberId; }
+        public String getName() { return name; }
+        public String getEmail() { return email; }
+        public List<Integer> getIssuedBooks() { return issuedBooks; }
+
+        public void displayMemberDetails() {
+            System.out.println("Member ID: " + memberId);
+            System.out.println("Name     : " + name);
+            System.out.println("Email    : " + email);
+            System.out.println("Issued Books: " + (issuedBooks.isEmpty() ? "None" : issuedBooks));
+            System.out.println("-----------------------------------");
+        }
+
+        public void addIssuedBook(int bookId) {
+            if (!issuedBooks.contains(bookId)) issuedBooks.add(bookId);
+        }
+
+        public boolean returnIssuedBook(int bookId) {
+            return issuedBooks.remove(Integer.valueOf(bookId));
+        }
+
+        public String toCSV() {
+            // memberId,name,email,book1|book2|book3
+            StringBuilder sb = new StringBuilder();
+            sb.append(memberId).append(",").append(escape(name)).append(",").append(escape(email)).append(",");
+            for (int i = 0; i < issuedBooks.size(); i++) {
+                if (i > 0) sb.append("|");
+                sb.append(issuedBooks.get(i));
+            }
+            return sb.toString();
+        }
+
+        public static Member fromCSV(String line) {
+            try {
+                String[] parts = line.split(",", 4);
+                int id = Integer.parseInt(parts[0]);
+                String name = unescape(parts[1]);
+                String email = unescape(parts[2]);
+                List<Integer> issued = new ArrayList<>();
+                if (parts.length >= 4 && parts[3] != null && !parts[3].isEmpty()) {
+                    String[] ids = parts[3].split("\\|");
+                    for (String s : ids) {
+                        if (!s.trim().isEmpty()) issued.add(Integer.parseInt(s.trim()));
+                    }
+                }
+                return new Member(id, name, email, issued);
+            } catch (Exception e) {
+                return null;
+            }
+        }
+
+        private static String escape(String s) { return s.replace("\\", "\\\\").replace(",", "\u001F"); }
+        private static String unescape(String s) { return s.replace("\u001F", ",").replace("\\\\", "\\"); }
+    }
+
+    // ------------------------- Library Manager -------------------------
+    static class LibraryManager {
+        private static final String BOOKS_FILE = "books.txt";
+        private static final String MEMBERS_FILE = "members.txt";
+
+        private Map<Integer, Book> books;
+        private Map<Integer, Member> members;
+        private Set<String> categories;
+
+        private Scanner scanner;
+        private int nextBookId = 100;   // starting ids
+        private int nextMemberId = 200;
+
+        // Email validation regex (simple)
+        private static final Pattern EMAIL_PATTERN = Pattern.compile("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,6}$");
+
+        public LibraryManager() {
+            books = new HashMap<>();
+            members = new HashMap<>();
+            categories = new HashSet<>();
+            scanner = new Scanner(System.in);
+        }
+
+        // Load books and members from files
+        public void loadFromFile() {
+            loadBooks();
+            loadMembers();
+            // determine next ids
+            for (int id : books.keySet()) nextBookId = Math.max(nextBookId, id + 1);
+            for (int id : members.keySet()) nextMemberId = Math.max(nextMemberId, id + 1);
+            System.out.println("Data loaded. Books: " + books.size() + ", Members: " + members.size());
+        }
+
+        private void loadBooks() {
+            File f = new File(BOOKS_FILE);
+            if (!f.exists()) return; // no books yet
+            try (BufferedReader br = new BufferedReader(new FileReader(f))) {
+                String line;
+                while ((line = br.readLine()) != null) {
+                    if (line.trim().isEmpty()) continue;
+                    Book b = Book.fromCSV(line);
+                    if (b != null) {
+                        books.put(b.getBookId(), b);
+                        categories.add(b.getCategory());
+                    }
+                }
+            } catch (IOException e) {
+                System.out.println("Error loading books: " + e.getMessage());
+            }
+        }
+
+        private void loadMembers() {
+            File f = new File(MEMBERS_FILE);
+            if (!f.exists()) return; // no members yet
+            try (BufferedReader br = new BufferedReader(new FileReader(f))) {
+                String line;
+                while ((line = br.readLine()) != null) {
+                    if (line.trim().isEmpty()) continue;
+                    Member m = Member.fromCSV(line);
+                    if (m != null) members.put(m.getMemberId(), m);
+                }
+            } catch (IOException e) {
+                System.out.println("Error loading members: " + e.getMessage());
+            }
+        }
+
+        // Save both files
+        public void saveToFile() {
+            saveBooks();
+            saveMembers();
+        }
+
+        private void saveBooks() {
+            try (BufferedWriter bw = new BufferedWriter(new FileWriter(BOOKS_FILE))) {
+                for (Book b : books.values()) {
+                    bw.write(b.toCSV());
+                    bw.newLine();
+                }
+            } catch (IOException e) {
+                System.out.println("Error saving books: " + e.getMessage());
+            }
+        }
+
+        private void saveMembers() {
+            try (BufferedWriter bw = new BufferedWriter(new FileWriter(MEMBERS_FILE))) {
+                for (Member m : members.values()) {
+                    bw.write(m.toCSV());
+                    bw.newLine();
+                }
+            } catch (IOException e) {
+                System.out.println("Error saving members: " + e.getMessage());
+            }
+        }
+
+        // ------------------- Operations -------------------
+        public void addBook() {
+            try {
+                System.out.print("Enter Book Title: ");
+                String title = scanner.nextLine().trim();
+                if (title.isEmpty()) { System.out.println("Title cannot be empty."); return; }
+
+                System.out.print("Enter Author: ");
+                String author = scanner.nextLine().trim();
+                if (author.isEmpty()) { System.out.println("Author cannot be empty."); return; }
+
+                System.out.print("Enter Category: ");
+                String category = scanner.nextLine().trim();
+                if (category.isEmpty()) category = "General";
+
+                int id = nextBookId++;
+                Book b = new Book(id, title, author, category, false);
+                books.put(id, b);
+                categories.add(category);
+                saveBooks();
+                System.out.println("Book added successfully with ID: " + id);
+            } catch (Exception e) {
+                System.out.println("Error adding book: " + e.getMessage());
+            }
+        }
+
+        public void addMember() {
+            try {
+                System.out.print("Enter Member Name: ");
+                String name = scanner.nextLine().trim();
+                if (name.isEmpty()) { System.out.println("Name cannot be empty."); return; }
+
+                System.out.print("Enter Email: ");
+                String email = scanner.nextLine().trim();
+                if (!isValidEmail(email)) { System.out.println("Invalid email format."); return; }
+
+                int id = nextMemberId++;
+                Member m = new Member(id, name, email, Collections.emptyList());
+                members.put(id, m);
+                saveMembers();
+                System.out.println("Member added successfully with ID: " + id);
+            } catch (Exception e) {
+                System.out.println("Error adding member: " + e.getMessage());
+            }
+        }
+
+        private boolean isValidEmail(String email) {
+            return EMAIL_PATTERN.matcher(email).matches();
+        }
+
+        public void issueBook() {
+            try {
+                System.out.print("Enter Book ID to issue: ");
+                int bid = Integer.parseInt(scanner.nextLine().trim());
+                Book b = books.get(bid);
+                if (b == null) { System.out.println("Book not found."); return; }
+                if (b.isIssued()) { System.out.println("Book is already issued."); return; }
+
+                System.out.print("Enter Member ID: ");
+                int mid = Integer.parseInt(scanner.nextLine().trim());
+                Member m = members.get(mid);
+                if (m == null) { System.out.println("Member not found."); return; }
+
+                // mark
+                b.markAsIssued();
+                m.addIssuedBook(bid);
+                saveToFile();
+                System.out.println("Book " + bid + " issued to member " + mid + " successfully.");
+            } catch (NumberFormatException nfe) {
+                System.out.println("Invalid numeric input.");
+            } catch (Exception e) {
+                System.out.println("Error issuing book: " + e.getMessage());
+            }
+        }
+
+        public void returnBook() {
+            try {
+                System.out.print("Enter Book ID to return: ");
+                int bid = Integer.parseInt(scanner.nextLine().trim());
+                Book b = books.get(bid);
+                if (b == null) { System.out.println("Book not found."); return; }
+                if (!b.isIssued()) { System.out.println("Book is not currently issued."); return; }
+
+                System.out.print("Enter Member ID returning the book: ");
+                int mid = Integer.parseInt(scanner.nextLine().trim());
+                Member m = members.get(mid);
+                if (m == null) { System.out.println("Member not found."); return; }
+
+                boolean removed = m.returnIssuedBook(bid);
+                if (!removed) {
+                    System.out.println("This member did not have this book issued. Still proceeding to mark as returned.");
+                }
+                b.markAsReturned();
+                saveToFile();
+                System.out.println("Book " + bid + " returned successfully.");
+            } catch (NumberFormatException nfe) {
+                System.out.println("Invalid numeric input.");
+            } catch (Exception e) {
+                System.out.println("Error returning book: " + e.getMessage());
+            }
+        }
+
+        public void searchBooks() {
+            try {
+                System.out.println("Search by: 1) Title 2) Author 3) Category");
+                System.out.print("Enter choice: ");
+                int c = Integer.parseInt(scanner.nextLine().trim());
+                System.out.print("Enter search term: ");
+                String term = scanner.nextLine().trim().toLowerCase();
+
+                List<Book> results = new ArrayList<>();
+                for (Book b : books.values()) {
+                    if (c == 1 && b.getTitle().toLowerCase().contains(term)) results.add(b);
+                    else if (c == 2 && b.getAuthor().toLowerCase().contains(term)) results.add(b);
+                    else if (c == 3 && b.getCategory().toLowerCase().contains(term)) results.add(b);
+                }
+
+                if (results.isEmpty()) System.out.println("No books found.");
+                else {
+                    System.out.println("Found " + results.size() + " book(s):");
+                    for (Book b : results) b.displayBookDetails();
+                }
+            } catch (NumberFormatException nfe) {
+                System.out.println("Invalid choice.");
+            } catch (Exception e) {
+                System.out.println("Error searching books: " + e.getMessage());
+            }
+        }
+
+        public void sortBooks() {
+            try {
+                System.out.println("Sort by: 1) Title (Comparable) 2) Author (Comparator) 3) Category (Comparator)");
+                System.out.print("Enter choice: ");
+                int c = Integer.parseInt(scanner.nextLine().trim());
+                List<Book> list = new ArrayList<>(books.values());
+                switch (c) {
+                    case 1:
+                        Collections.sort(list); // uses Comparable (title)
+                        break;
+                    case 2:
+                        Collections.sort(list, Comparator.comparing(Book::getAuthor, String.CASE_INSENSITIVE_ORDER));
+                        break;
+                    case 3:
+                        Collections.sort(list, Comparator.comparing(Book::getCategory, String.CASE_INSENSITIVE_ORDER));
+                        break;
+                    default:
+                        System.out.println("Invalid choice.");
+                        return;
+                }
+                System.out.println("Sorted books:");
+                for (Book b : list) b.displayBookDetails();
+            } catch (NumberFormatException nfe) {
+                System.out.println("Invalid choice.");
+            } catch (Exception e) {
+                System.out.println("Error sorting books: " + e.getMessage());
+            }
+        }
+
+        // Display member details by ID
+        public void showMemberDetails() {
+            try {
+                System.out.print("Enter Member ID: ");
+                int mid = Integer.parseInt(scanner.nextLine().trim());
+                Member m = members.get(mid);
+                if (m == null) { System.out.println("Member not found."); return; }
+                m.displayMemberDetails();
+                // show detailed book info for issued books
+                for (int bid : m.getIssuedBooks()) {
+                    Book b = books.get(bid);
+                    if (b != null) {
+                        System.out.println("Issued Book Details:");
+                        b.displayBookDetails();
+                    }
+                }
+            } catch (NumberFormatException nfe) {
+                System.out.println("Invalid numeric input.");
+            } catch (Exception e) {
+                System.out.println("Error showing member: " + e.getMessage());
+            }
+        }
+
+        // ------------------- Menu -------------------
+        public void mainMenu() {
+            boolean exit = false;
+            try {
+                while (!exit) {
+                    System.out.println();
+                    System.out.println("===== City Library Digital Management System =====");
+                    System.out.println("1. Add Book");
+                    System.out.println("2. Add Member");
+                    System.out.println("3. Issue Book");
+                    System.out.println("4. Return Book");
+                    System.out.println("5. Search Books");
+                    System.out.println("6. Sort Books");
+                    System.out.println("7. Show Member Details");
+                    System.out.println("8. Exit");
+                    System.out.print("Enter your choice: ");
+
+                    String line = scanner.nextLine().trim();
+                    if (line.isEmpty()) { System.out.println("Please enter a choice."); continue; }
+                    int choice = Integer.parseInt(line);
+                    switch (choice) {
+                        case 1: addBook(); break;
+                        case 2: addMember(); break;
+                        case 3: issueBook(); break;
+                        case 4: returnBook(); break;
+                        case 5: searchBooks(); break;
+                        case 6: sortBooks(); break;
+                        case 7: showMemberDetails(); break;
+                        case 8:
+                            System.out.println("Saving data and exiting. Thank you!");
+                            saveToFile();
+                            exit = true;
+                            break;
+                        default:
+                            System.out.println("Invalid choice. Please select 1-8.");
+                    }
+                }
+            } catch (NumberFormatException nfe) {
+                System.out.println("Choice must be a number. Exiting menu.");
+            } finally {
+                if (scanner != null) scanner.close();
+            }
+        }
+    }
+}
